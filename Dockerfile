@@ -31,6 +31,13 @@ RUN pnpm ui:build
 
 ENV NODE_ENV=production
 
+
+# Install Google Gemini CLI globally
+RUN npm install -g @google/gemini-cli
+
+# Install ClawdHub CLI globally (used by Moltbot skills tooling)
+RUN npm install -g clawdhub
+
 # Security hardening: Run as non-root user
 # The node:22-bookworm image includes a 'node' user (uid 1000)
 # This reduces the attack surface by preventing container escape via root privileges
