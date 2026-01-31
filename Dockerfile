@@ -21,8 +21,23 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
 
+# Install brew (for managing tools inside the container)
+# We set up requirements for linuxbrew as root, then install as node user
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    build-essential \
+    procps \
+    curl \
+    file \
+    git \
+    && apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
+
 # Install uv (fast python package installer)
 RUN python3 -m pip install --break-system-packages uv
+
+# Prepare linuxbrew directory for the non-root user
+RUN mkdir -p /home/linuxbrew && chown -R node:node /home/linuxbrew
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY ui/package.json ./ui/package.json
@@ -55,8 +70,19 @@ USER node
 ENV NPM_CONFIG_PREFIX=/home/node/.npm-global
 ENV PATH=$PATH:/home/node/.npm-global/bin
 ENV PATH=$PATH:/home/node/go/bin
+# Add brew to PATH
+ENV PATH=$PATH:/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin
 RUN mkdir -p /home/node/.npm-global && \
     npm config set prefix '/home/node/.npm-global' && \
     git config --global --add safe.directory /app
+
+# Install Homebrew as non-root user
+RUN git clone https://github.com/Homebrew/brew /home/linuxbrew/.linuxbrew/Homebrew && \
+    mkdir -p /home/linuxbrew/.linuxbrew/bin && \
+    ln -s /home/linuxbrew/.linuxbrew/Homebrew/bin/brew /home/linuxbrew/.linuxbrew/bin/brew && \
+    eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" && \
+    brew update --force --quiet && \
+    chmod -R g+rwx /home/linuxbrew/.linuxbrew && \
+    (echo; echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"') >> /home/node/.bashrc
 
 CMD ["node", "dist/index.js"]
