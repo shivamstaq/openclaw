@@ -1,5 +1,9 @@
 services:
   openclaw-gateway:
+    build:
+      context: .
+      args:
+        OPENCLAW_DOCKER_APT_PACKAGES: ${OPENCLAW_DOCKER_APT_PACKAGES}
     image: ${OPENCLAW_IMAGE:-openclaw:local}
     network_mode: host
     environment:
@@ -15,6 +19,13 @@ services:
       - ${OPENCLAW_CONFIG_DIR}:/home/node/.openclaw
       - ${OPENCLAW_WORKSPACE_DIR}:/home/node/.openclaw/workspace
       - /home/shivam/molt:/home/node/Projects
+      - /home/shivam/.gitconfig:/home/node/.gitconfig
+      - /home/shivam/.ssh:/home/node/.ssh
+      - .:/app
+      - /app/node_modules
+      - /app/dist
+
+
     init: true
     restart: unless-stopped
     command:
@@ -42,6 +53,13 @@ services:
       - ${OPENCLAW_CONFIG_DIR}:/home/node/.openclaw
       - ${OPENCLAW_WORKSPACE_DIR}:/home/node/.openclaw/workspace
       - /home/shivam/molt:/home/node/Projects
+      - /home/shivam/.gitconfig:/home/node/.gitconfig
+      - /home/shivam/.ssh:/home/node/.ssh
+      - .:/app
+      - /app/node_modules
+      - /app/dist
+
+
     stdin_open: true
     tty: true
     init: true
