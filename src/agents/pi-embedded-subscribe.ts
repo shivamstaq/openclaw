@@ -1,8 +1,13 @@
+import type { InlineCodeState } from "../markdown/code-spans.js";
+import type {
+  EmbeddedPiSubscribeContext,
+  EmbeddedPiSubscribeState,
+} from "./pi-embedded-subscribe.handlers.types.js";
+import type { SubscribeEmbeddedPiSessionParams } from "./pi-embedded-subscribe.types.js";
 import { parseReplyDirectives } from "../auto-reply/reply/reply-directives.js";
 import { createStreamingDirectiveAccumulator } from "../auto-reply/reply/streaming-directives.js";
 import { formatToolAggregate } from "../auto-reply/tool-meta.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
-import type { InlineCodeState } from "../markdown/code-spans.js";
 import { buildCodeSpanIndex, createInlineCodeState } from "../markdown/code-spans.js";
 import { EmbeddedBlockChunker } from "./pi-embedded-block-chunker.js";
 import {
@@ -10,12 +15,8 @@ import {
   normalizeTextForComparison,
 } from "./pi-embedded-helpers.js";
 import { createEmbeddedPiSessionEventHandler } from "./pi-embedded-subscribe.handlers.js";
-import type {
-  EmbeddedPiSubscribeContext,
-  EmbeddedPiSubscribeState,
-} from "./pi-embedded-subscribe.handlers.types.js";
-import type { SubscribeEmbeddedPiSessionParams } from "./pi-embedded-subscribe.types.js";
 import { formatReasoningMessage } from "./pi-embedded-utils.js";
+import { hasNonzeroUsage, normalizeUsage, type UsageLike } from "./usage.js";
 
 const THINKING_TAG_SCAN_RE = /<\s*(\/?)\s*(?:think(?:ing)?|thought|antthinking)\s*>/gi;
 const FINAL_TAG_SCAN_RE = /<\s*(\/?)\s*final\s*>/gi;
@@ -49,6 +50,7 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
     partialBlockState: { thinking: false, final: false, inlineCode: createInlineCodeState() },
     lastStreamedAssistant: undefined,
     lastStreamedAssistantCleaned: undefined,
+    emittedAssistantUpdate: false,
     lastStreamedReasoning: undefined,
     lastBlockReplyText: undefined,
     assistantMessageIndex: 0,
@@ -68,6 +70,14 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
     pendingMessagingTexts: new Map(),
     pendingMessagingTargets: new Map(),
   };
+  const usageTotals = {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    total: 0,
+  };
+  let compactionCount = 0;
 
   const assistantTexts = state.assistantTexts;
   const toolMetas = state.toolMetas;
@@ -95,6 +105,7 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
     state.partialBlockState.inlineCode = createInlineCodeState();
     state.lastStreamedAssistant = undefined;
     state.lastStreamedAssistantCleaned = undefined;
+    state.emittedAssistantUpdate = false;
     state.lastBlockReplyText = undefined;
     state.lastStreamedReasoning = undefined;
     state.lastReasoningSent = undefined;
@@ -219,6 +230,43 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
       state.compactionRetryResolve = undefined;
       state.compactionRetryPromise = null;
     }
+  };
+  const recordAssistantUsage = (usageLike: unknown) => {
+    const usage = normalizeUsage((usageLike ?? undefined) as UsageLike | undefined);
+    if (!hasNonzeroUsage(usage)) {
+      return;
+    }
+    usageTotals.input += usage.input ?? 0;
+    usageTotals.output += usage.output ?? 0;
+    usageTotals.cacheRead += usage.cacheRead ?? 0;
+    usageTotals.cacheWrite += usage.cacheWrite ?? 0;
+    const usageTotal =
+      usage.total ??
+      (usage.input ?? 0) + (usage.output ?? 0) + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0);
+    usageTotals.total += usageTotal;
+  };
+  const getUsageTotals = () => {
+    const hasUsage =
+      usageTotals.input > 0 ||
+      usageTotals.output > 0 ||
+      usageTotals.cacheRead > 0 ||
+      usageTotals.cacheWrite > 0 ||
+      usageTotals.total > 0;
+    if (!hasUsage) {
+      return undefined;
+    }
+    const derivedTotal =
+      usageTotals.input + usageTotals.output + usageTotals.cacheRead + usageTotals.cacheWrite;
+    return {
+      input: usageTotals.input || undefined,
+      output: usageTotals.output || undefined,
+      cacheRead: usageTotals.cacheRead || undefined,
+      cacheWrite: usageTotals.cacheWrite || undefined,
+      total: usageTotals.total || derivedTotal || undefined,
+    };
+  };
+  const incrementCompactionCount = () => {
+    compactionCount += 1;
   };
 
   const blockChunking = params.blockReplyChunking;
@@ -528,6 +576,10 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
     noteCompactionRetry,
     resolveCompactionRetry,
     maybeResolveCompactionWait,
+    recordAssistantUsage,
+    incrementCompactionCount,
+    getUsageTotals,
+    getCompactionCount: () => compactionCount,
   };
 
   const unsubscribe = params.session.subscribe(createEmbeddedPiSessionEventHandler(ctx));
@@ -544,6 +596,8 @@ export function subscribeEmbeddedPiSession(params: SubscribeEmbeddedPiSessionPar
     // which is generated AFTER the tool sends the actual answer.
     didSendViaMessagingTool: () => messagingToolSentTexts.length > 0,
     getLastToolError: () => (state.lastToolError ? { ...state.lastToolError } : undefined),
+    getUsageTotals,
+    getCompactionCount: () => compactionCount,
     waitForCompactionRetry: () => {
       if (state.compactionInFlight || state.pendingCompactionRetry > 0) {
         ensureCompactionPromise();

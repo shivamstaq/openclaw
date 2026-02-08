@@ -53,12 +53,14 @@ RUN pnpm ui:build
 
 ENV NODE_ENV=production
 
-
 # Install Google Gemini CLI globally
 RUN npm install -g @google/gemini-cli
 
 # Install ClawdHub CLI globally (used by Moltbot skills tooling)
 RUN npm install -g clawdhub undici
+
+# Allow non-root user to write temp files during runtime/tests.
+RUN chown -R node:node /app
 
 # Security hardening: Run as non-root user
 # The node:22-bookworm image includes a 'node' user (uid 1000)
@@ -86,4 +88,10 @@ RUN git clone https://github.com/Homebrew/brew /home/linuxbrew/.linuxbrew/Homebr
     (echo; echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"') >> /home/node/.profile && \
     brew install go task
 
-CMD ["node", "dist/index.js"]
+# Start gateway server with default config.
+# Binds to loopback (127.0.0.1) by default for security.
+#
+# For container platforms requiring external health checks:
+#   1. Set OPENCLAW_GATEWAY_TOKEN or OPENCLAW_GATEWAY_PASSWORD env var
+#   2. Override CMD: ["node","openclaw.mjs","gateway","--allow-unconfigured","--bind","lan"]
+CMD ["node", "openclaw.mjs", "gateway", "--allow-unconfigured"]
