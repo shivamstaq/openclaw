@@ -11,7 +11,6 @@ WORKDIR /app
 ARG OPENCLAW_DOCKER_APT_PACKAGES=""
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    golang \
     ffmpeg \
     python3-pip \
     python3-venv \
@@ -70,19 +69,21 @@ USER node
 ENV NPM_CONFIG_PREFIX=/home/node/.npm-global
 ENV PATH=$PATH:/home/node/.npm-global/bin
 ENV PATH=$PATH:/home/node/go/bin
-# Add brew to PATH
-ENV PATH=$PATH:/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin
+# Add brew to PATH (prepend to ensure brew binaries take precedence)
+ENV PATH=/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:$PATH
 RUN mkdir -p /home/node/.npm-global && \
     npm config set prefix '/home/node/.npm-global' && \
     git config --global --add safe.directory /app
 
-# Install Homebrew as non-root user
+# Install Homebrew as non-root user and install latest Go
 RUN git clone https://github.com/Homebrew/brew /home/linuxbrew/.linuxbrew/Homebrew && \
     mkdir -p /home/linuxbrew/.linuxbrew/bin && \
     ln -s /home/linuxbrew/.linuxbrew/Homebrew/bin/brew /home/linuxbrew/.linuxbrew/bin/brew && \
     eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" && \
     brew update --force --quiet && \
     chmod -R g+rwx /home/linuxbrew/.linuxbrew && \
-    (echo; echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"') >> /home/node/.bashrc
+    (echo; echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"') >> /home/node/.bashrc && \
+    (echo; echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"') >> /home/node/.profile && \
+    brew install go task
 
 CMD ["node", "dist/index.js"]
